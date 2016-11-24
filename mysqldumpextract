@@ -1,0 +1,48 @@
+#!/usr/bin/perl -wT
+# GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
+
+our $VERSION='1.00';
+
+use strict;
+use Getopt::Long qw (:config auto_version);
+
+
+# parse command line options 
+my $DEBUG = 0;
+my $opt_help = 0;
+my @ignoretables = ();
+
+
+my $result = GetOptions ( "help|h" => \$opt_help,
+                          "--ignore-table=s"   => \@ignoretables,
+                          "debug=i"  => \$DEBUG,
+                          );
+                                                         
+if ($opt_help) {
+    print <<EOF;
+mysqldumpextract v$VERSION
+
+This script parses mysqldump backup file (usually created with "mysqldump --all-databases", and extracts only one database from it.
+It can also extract only some tables from that database, or extract all tables except some of them.
+
+Usage:
+mysqldumpextract [--ignore-table=table]... database [table]...
+Options:
+\t-h, --help
+\t\tPrint this help screen
+\t--ignore-table=table
+\t\tignores specified table. May be repeated for multiple ignores.
+\t--debug
+\t\tset debug level
+
+Example usage:
+\t# All tables from database "mydb1" EXCEPT "table1" and "table2" from .gz backup
+\tzcat mysqldump.sql.gz | mysqldumpextract --ignore-table=mydb1.table1 --ignore-table=table2 mydb1 | gzip > short_dump.sql.gz
+
+\t# only table5 and table6 from database "mydb2", reading from .xz backup and compressing output to .bz2 
+\txzcat mysqldump.sql.xz | mysqldumpextract mydb1 table5 table6 |bzip2 > table_5_6.sql.bz2
+EOF
+	exit 3;
+}
+
+exit 0;
