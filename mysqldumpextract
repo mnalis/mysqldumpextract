@@ -1,7 +1,7 @@
 #!/usr/bin/perl -wT
 # GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
 
-our $VERSION='1.00';
+our $VERSION='1.01';
 
 use strict;
 use Getopt::Long qw (:config auto_version);
@@ -20,6 +20,14 @@ my $result = GetOptions ( "help|h" => \$opt_help,
 my $mydb = shift @ARGV;
 if (! $mydb) { $opt_help = 2; }
 
+# fix wildcards from SQL to RegEx
+sub fix_wild($)
+{
+  my ($wild) = @_;
+  $wild =~ s/%/.*/;
+  return $wild;
+}
+
 # parse DO tables
 my  @do_tables = ('%'); 
 if (@ARGV) {
@@ -37,6 +45,8 @@ if (@ARGV) {
       }
   }
 }
+my $do_tables_regex = '^(' . join('|', @do_tables) . ')$';
+undef @do_tables;
 
 # parse IGNORE tables
 if (@ignore_tables) {
@@ -52,6 +62,8 @@ if (@ignore_tables) {
       $ignore_tables[$i] = fix_wild($ignore_tables[$i]);
   }
 }
+my $ignore_tables_regex = '^(' . join('|', @ignore_tables) . ')$';
+undef @ignore_tables;
                                                          
 if ($opt_help) {
     print <<EOF;
@@ -95,8 +107,8 @@ sub dbg ($$) {
 # print headers
 print "-- mysqldumpextract v$VERSION started at " . localtime() . "\n";
 print "--   Extracting DB: $mydb\n";
-print "--   Extract tables: " . join(', ', @do_tables) . "\n";
-print "--   Ignore tables: " . join(', ', @ignore_tables) . "\n";
+print "--   Extract tables regex: $do_tables_regex\n";
+print "--   Ignore  tables regex: $ignore_tables_regex\n";
 print "--\n";
 
 # returns if tabl
@@ -115,7 +127,7 @@ sub table_find($)
 sub match_wild
 {
   my ($cur_table, $list_ref) = @_;
-  
+  return ($cur_table =~ /$$list_ref/);
 }
 
 my $do_db = 1;	# we start by including everything (even before first DB, there are SETtings that are needed)
@@ -128,13 +140,16 @@ sub match_table()
   # -- Temporary table structure for view `_Kupovina_kod_dobavljaca`
   # -- Final view structure for view `_vw_SellingArtikl_VP`
   if (/^-- (Table structure for table|Temporary table structure for view|Final view structure for view) `(.*?)`/) {		# only change $do_table state if new table is encountered
-    my $cur_table = $1;
+    my $cur_table = $2;
     $do_table = 0;
-    if (match_wild($cur_table, \@do_tables)) {			# if matched DO_TABLES...
-        if (!match_wild($cur_table, \@ignore_tables)) {		# ...and does not match IGNORE_TABLES:
-            $do_table = 1;					# only then we want it!
+    if (match_wild($cur_table, \$do_tables_regex)) {			# if matched DO_TABLES...
+        dbg(6, "\`$cur_table\` matches DO TABLES");
+        if (!match_wild($cur_table, \$ignore_tables_regex)) {		# ...and does not match IGNORE_TABLES:
+            dbg(6, "\`$cur_table\` does not match IGNORE TABLES");
+            $do_table = 1;						# only then we want it!
         }
     }
+    dbg(5, "final \`$cur_table\`, do_table=$do_table");
   }
   return $do_table;
 }
@@ -147,10 +162,10 @@ sub match_db()
     if ("$1" eq "$mydb") {
       $do_db = 1; 
       $do_table = 1;
-      dbg(1, "matched DB=$mydb");
+      dbg(1, "matched DB=\`$mydb\`");
     } else {
       $do_db = 0;
-      dbg(1, "DB $1 is no longer $mydb");
+      dbg(1, "DB \`$1\` is no longer \`$mydb\`");
     };
   }
   if ($do_db) {					# if currently dumping data, do not include database drop/create/use commands
@@ -158,7 +173,7 @@ sub match_db()
     if (/CREATE DATABASE .*`$mydb`/i) { dbg(2,"ignore $_"); return 0; }
     if (/^USE .*`$mydb`/i) { dbg(2,"ignore $_"); return 0; }
   }
-  dbg(6, "do_db=$do_db, line=$_");
+  dbg(8, "do_db=$do_db, line=$_");
   return $do_db;
 }
 
