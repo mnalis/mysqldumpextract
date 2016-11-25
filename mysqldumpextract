@@ -24,7 +24,7 @@ if (! $mydb) { $opt_help = 2; }
 sub fix_wild($)
 {
   my ($wild) = @_;
-  $wild =~ s/%/.*/;
+  $wild =~ s/%/.*/g;
   return $wild;
 }
 
@@ -36,16 +36,16 @@ if (@ARGV) {
       if ($table =~ /^(.*)\.(.*)$/) {	# db.table format
         my $_db = $1; my $_tbl = $2;
         if ($_db eq $mydb) {
-          push @do_tables, fix_wild($_tbl);
+          push @do_tables, $_tbl;
         } else {
           die "extracting DB \`$mydb\`, but trying to do table \`$table\` ??"
         }
       } else {
-        push @do_tables, fix_wild($table);
+        push @do_tables, $table;
       }
   }
 }
-my $do_tables_regex = '^(' . join('|', @do_tables) . ')$';
+my $do_tables_regex = '^(' . fix_wild(join('|', @do_tables)) . ')$';
 undef @do_tables;
 
 # parse IGNORE tables
@@ -59,10 +59,9 @@ if (@ignore_tables) {
           die "extracting DB \`$mydb\`, but trying to ignore table \`$ignore_tables[$i]\` ??"
         }
       }
-      $ignore_tables[$i] = fix_wild($ignore_tables[$i]);
   }
 }
-my $ignore_tables_regex = '^(' . join('|', @ignore_tables) . ')$';
+my $ignore_tables_regex = '^(' . fix_wild(join('|', @ignore_tables)) . ')$';
 undef @ignore_tables;
                                                          
 if ($opt_help) {
@@ -109,7 +108,7 @@ print "-- mysqldumpextract v$VERSION started at " . localtime() . "\n";
 print "--   Extracting DB: $mydb\n";
 print "--   Extract tables regex: $do_tables_regex\n";
 print "--   Ignore  tables regex: $ignore_tables_regex\n";
-print "--\n";
+print "--\n\n";
 
 # returns if tabl
 sub table_find($)
