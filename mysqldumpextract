@@ -18,7 +18,11 @@ my $result = GetOptions ( "help|h" => \$opt_help,
                           );
 
 my $mydb = shift @ARGV;
-if (! $mydb) { $opt_help = 2; }
+if ($mydb) {
+  if ($mydb =~ /\./) { die "invalid database name \`$mydb\`" }	# people might send SQL dump filename as first param, and we only accept mysqldump input at STDIN !
+} else {
+  $opt_help = 2;
+}
 
 # fix wildcards from SQL to RegEx
 sub fix_wild($)
