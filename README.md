@@ -9,4 +9,7 @@ Usage:
 zcat mysqldump.sql.gz | mysqldumpextract --ignore-table=mydb1.table1 --ignore-table=table2 mydb1 | gzip > short_dump.sql.gz
 
 # only table5 and table6 from database "mydb2", reading from .xz backup and compressing output to .bz2 
-xzcat mysqldump.sql.xz | mysqldumpextract mydb1 table5 table6 |bzip2 > table_5_6.sql.bz2
+xzcat mysqldump.sql.xz | mysqldumpextract mydb2 table5 table6 |bzip2 > table_5_6.sql.bz2
+
+# table names may include "%" as SQL wildcard.
+cat mysqldump.sql | mysqldumpextract mysql help_%

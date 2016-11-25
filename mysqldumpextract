@@ -10,13 +10,48 @@ use Getopt::Long qw (:config auto_version);
 # parse command line options 
 my $DEBUG = 0;
 my $opt_help = 0;
-my @ignoretables = ();
-
+my @ignore_tables = ();
 
 my $result = GetOptions ( "help|h" => \$opt_help,
-                          "--ignore-table=s"   => \@ignoretables,
+                          "--ignore-table=s"   => \@ignore_tables,
                           "debug=i"  => \$DEBUG,
                           );
+
+my $mydb = shift @ARGV;
+if (! $mydb) { $opt_help = 2; }
+
+# parse DO tables
+my  @do_tables = ('%'); 
+if (@ARGV) {
+  @do_tables = ();
+  foreach my $table (@ARGV) {
+      if ($table =~ /^(.*)\.(.*)$/) {	# db.table format
+        my $_db = $1; my $_tbl = $2;
+        if ($_db eq $mydb) {
+          push @do_tables, fix_wild($_tbl);
+        } else {
+          die "extracting DB \`$mydb\`, but trying to do table \`$table\` ??"
+        }
+      } else {
+        push @do_tables, fix_wild($table);
+      }
+  }
+}
+
+# parse IGNORE tables
+if (@ignore_tables) {
+  for (my $i=0; $i < @ignore_tables; $i++) {
+      if ($ignore_tables[$i] =~ /^(.*)\.(.*)$/) {	# db.table format
+        my $_db = $1; my $_tbl = $2;
+        if ($_db eq $mydb) {
+          $ignore_tables[$i] = $_tbl;
+        } else {
+          die "extracting DB \`$mydb\`, but trying to ignore table \`$ignore_tables[$i]\` ??"
+        }
+      }
+      $ignore_tables[$i] = fix_wild($ignore_tables[$i]);
+  }
+}
                                                          
 if ($opt_help) {
     print <<EOF;
@@ -41,8 +76,100 @@ Example usage:
 
 \t# only table5 and table6 from database "mydb2", reading from .xz backup and compressing output to .bz2 
 \txzcat mysqldump.sql.xz | mysqldumpextract mydb1 table5 table6 |bzip2 > table_5_6.sql.bz2
+
+\t# table names may include "%" as SQL wildcard.
+\tcat mysqldump.sql | mysqldumpextract mysql help_%
 EOF
 	exit 3;
 }
+
+# prints debug info
+sub dbg ($$) {
+  my ($dbg, $msg) = @_;
+  if ($DEBUG >= $dbg) {
+    chomp $msg;
+    print "-- (dbg$dbg): $msg\n"; 
+  }
+}
+
+# print headers
+print "-- mysqldumpextract v$VERSION started at " . localtime() . "\n";
+print "--   Extracting DB: $mydb\n";
+print "--   Extract tables: " . join(', ', @do_tables) . "\n";
+print "--   Ignore tables: " . join(', ', @ignore_tables) . "\n";
+print "--\n";
+
+# returns if tabl
+sub table_find($)
+{
+  my ($cur_table) = @_;
+  if (match_wild($cur_table, \@do_tables)) {			# if matched DO_TABLES...
+      if (!match_wild($cur_table, \@ignore_tables)) {		# ...and does not match IGNORE_TABLES:
+          return 1;						# only then we want it!
+      }
+  }
+  return 0;
+}
+
+# does current table matches entry specified list?
+sub match_wild
+{
+  my ($cur_table, $list_ref) = @_;
+  
+}
+
+my $do_db = 1;	# we start by including everything (even before first DB, there are SETtings that are needed)
+my $do_table = 1;
+
+# updates $do_table if table matches. returns 1 if current table should be extracted, or 0 if not.
+sub match_table()
+{
+  # -- Table structure for table `_artikli_mjeseci`
+  # -- Temporary table structure for view `_Kupovina_kod_dobavljaca`
+  # -- Final view structure for view `_vw_SellingArtikl_VP`
+  if (/^-- (Table structure for table|Temporary table structure for view|Final view structure for view) `(.*?)`/) {		# only change $do_table state if new table is encountered
+    my $cur_table = $1;
+    $do_table = 0;
+    if (match_wild($cur_table, \@do_tables)) {			# if matched DO_TABLES...
+        if (!match_wild($cur_table, \@ignore_tables)) {		# ...and does not match IGNORE_TABLES:
+            $do_table = 1;					# only then we want it!
+        }
+    }
+  }
+  return $do_table;
+}
+
+# updates $do_db if database matches. returns 1 if current database should be extracted, or 0 if not.
+sub match_db()
+{
+  if (/^CHANGE MASTER/i) { return 0; }		# when extracting partial data, ignore replication commands
+  if (/^-- Current Database: `(.*?)`/) {	# only change $do_db state if new database is encountered
+    if ("$1" eq "$mydb") {
+      $do_db = 1; 
+      $do_table = 1;
+      dbg(1, "matched DB=$mydb");
+    } else {
+      $do_db = 0;
+      dbg(1, "DB $1 is no longer $mydb");
+    };
+  }
+  if ($do_db) {					# if currently dumping data, do not include database drop/create/use commands
+    if (/DROP DATABASE .*`$mydb`/i) { dbg(2,"ignore $_"); return 0; }
+    if (/CREATE DATABASE .*`$mydb`/i) { dbg(2,"ignore $_"); return 0; }
+    if (/^USE .*`$mydb`/i) { dbg(2,"ignore $_"); return 0; }
+  }
+  dbg(6, "do_db=$do_db, line=$_");
+  return $do_db;
+}
+
+#
+# main loop
+#
+while (<STDIN>) {
+  next if !match_db();				# skip uninteresting databases alltogether
+  print if match_table();
+}
+
+print "\n-- mysqldumpextract v$VERSION ended at " . localtime() . "\n";
 
 exit 0;
