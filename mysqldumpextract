@@ -1,7 +1,7 @@
 #!/usr/bin/perl -wT
 # GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
 
-our $VERSION='1.01';
+our $VERSION='1.12';
 
 use strict;
 use Getopt::Long qw (:config auto_version);
@@ -10,10 +10,12 @@ use Getopt::Long qw (:config auto_version);
 # parse command line options 
 my $DEBUG = 0;
 my $opt_help = 0;
-my @ignore_tables = ();
+my @ignore_tables_all = ();
+my @ignore_tables_data = ();
 
 my $result = GetOptions ( "help|h" => \$opt_help,
-                          "--ignore-table=s"   => \@ignore_tables,
+                          "--ignore-table=s"   => \@ignore_tables_all,
+                          "--ignore-table-data=s"   => \@ignore_tables_data,
                           "debug=i"  => \$DEBUG,
                           );
 
@@ -52,21 +54,38 @@ if (@ARGV) {
 my $do_tables_regex = '^(' . fix_wild(join('|', @do_tables)) . ')$';
 undef @do_tables;
 
-# parse IGNORE tables
-if (@ignore_tables) {
-  for (my $i=0; $i < @ignore_tables; $i++) {
-      if ($ignore_tables[$i] =~ /^(.*)\.(.*)$/) {	# db.table format
+# parse IGNORE tables ALL
+if (@ignore_tables_all) {
+  for (my $i=0; $i < @ignore_tables_all; $i++) {
+      if ($ignore_tables_all[$i] =~ /^(.*)\.(.*)$/) {	# db.table format
         my $_db = $1; my $_tbl = $2;
         if ($_db eq $mydb) {
-          $ignore_tables[$i] = $_tbl;
+          $ignore_tables_all[$i] = $_tbl;
         } else {
-          die "extracting DB \`$mydb\`, but trying to ignore table \`$ignore_tables[$i]\` ??"
+          die "extracting DB \`$mydb\`, but trying to ignore table \`$ignore_tables_all[$i]\` ??"
         }
       }
   }
 }
-my $ignore_tables_regex = '^(' . fix_wild(join('|', @ignore_tables)) . ')$';
-undef @ignore_tables;
+my $ignore_tables_all_regex = '^(' . fix_wild(join('|', @ignore_tables_all)) . ')$';
+undef @ignore_tables_all;
+
+# parse IGNORE tables DATA
+if (@ignore_tables_data) {
+  for (my $i=0; $i < @ignore_tables_data; $i++) {
+      if ($ignore_tables_data[$i] =~ /^(.*)\.(.*)$/) {	# db.table format
+        my $_db = $1; my $_tbl = $2;
+        if ($_db eq $mydb) {
+          $ignore_tables_data[$i] = $_tbl;
+        } else {
+          die "extracting DB \`$mydb\`, but trying to ignore table data \`$ignore_tables_data[$i]\` ??"
+        }
+      }
+  }
+}
+my $ignore_tables_data_regex = '^(' . fix_wild(join('|', @ignore_tables_data)) . ')$';
+undef @ignore_tables_data;
+
                                                          
 if ($opt_help) {
     print <<EOF;
@@ -76,12 +95,14 @@ This script parses mysqldump backup file (usually created with "mysqldump --all-
 It can also extract only some tables from that database, or extract all tables except some of them.
 
 Usage:
-mysqldumpextract [--ignore-table=table]... database [table]...
+mysqldumpextract [--ignore-table=table]... [--ignore-table-data=table]... database [table]...
 Options:
 \t-h, --help
 \t\tPrint this help screen
 \t--ignore-table=table
 \t\tignores specified table. May be repeated for multiple ignores.
+\t--ignore-table-data=table
+\t\tignores only INSERTS for specified table (eg. create structure only). May be repeated for multiple ignores.
 \t--debug
 \t\tset debug level
 
@@ -91,6 +112,9 @@ Example usage:
 
 \t# only table5 and table6 from database "mydb2", reading from .xz backup and compressing output to .bz2 
 \txzcat mysqldump.sql.xz | mysqldumpextract mydb1 table5 table6 |bzip2 > table_5_6.sql.bz2
+
+\t# extract all tables from mydb2 with names starting with "tt", but only extract structure for "tt_log"
+\txzcat mysqldump.sql.xz | mysqldumpextract --ignore-table-data=tt_log mydb2 tt% 
 
 \t# table names may include "%" as SQL wildcard.
 \tcat mysqldump.sql | mysqldumpextract mysql help_%
@@ -111,20 +135,9 @@ sub dbg ($$) {
 print "-- mysqldumpextract v$VERSION started at " . localtime() . "\n";
 print "--   Extracting DB: $mydb\n";
 print "--   Extract tables regex: $do_tables_regex\n";
-print "--   Ignore  tables regex: $ignore_tables_regex\n";
+print "--   Ignore  tables regex: $ignore_tables_all_regex\n";
+print "--   Ignore    data regex: $ignore_tables_data_regex\n";
 print "--\n\n";
-
-# returns if tabl
-sub table_find($)
-{
-  my ($cur_table) = @_;
-  if (match_wild($cur_table, \@do_tables)) {			# if matched DO_TABLES...
-      if (!match_wild($cur_table, \@ignore_tables)) {		# ...and does not match IGNORE_TABLES:
-          return 1;						# only then we want it!
-      }
-  }
-  return 0;
-}
 
 # does current table matches entry specified list?
 sub match_wild
@@ -147,9 +160,13 @@ sub match_table()
     $do_table = 0;
     if (match_wild($cur_table, \$do_tables_regex)) {			# if matched DO_TABLES...
         dbg(6, "\`$cur_table\` matches DO TABLES");
-        if (!match_wild($cur_table, \$ignore_tables_regex)) {		# ...and does not match IGNORE_TABLES:
+        $do_table = 1;							# ... then by default include it...
+        if (match_wild($cur_table, \$ignore_tables_all_regex)) {		# ... but do NOT include it if it matches IGNORE_TABLES_ALL
             dbg(6, "\`$cur_table\` does not match IGNORE TABLES");
-            $do_table = 1;						# only then we want it!
+            $do_table = 0;
+        } elsif (match_wild($cur_table, \$ignore_tables_data_regex)) {		# ... and only include CREATE TABLE it matches IGNORE_TABLES_DATA
+            dbg(6, "\`$cur_table\` does not match IGNORE TABLES DATA");
+            $do_table = 2;		# 2 == skip INSERTs
         }
     }
     dbg(5, "final \`$cur_table\`, do_table=$do_table");
@@ -185,7 +202,12 @@ sub match_db()
 #
 while (<STDIN>) {
   next if !match_db();				# skip uninteresting databases alltogether
-  print if match_table();
+  my $should_print_table = match_table();
+  if ($should_print_table == 1) {		# print ALL
+      print;
+  } elsif ($should_print_table == 2) {		# print ALL except INSERTs (that is, CREATE TABLEs)
+      print unless /^\s*INSERT /i;
+  }
 }
 
 print "\n-- mysqldumpextract v$VERSION ended at " . localtime() . "\n";
