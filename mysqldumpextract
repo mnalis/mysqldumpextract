@@ -1,7 +1,7 @@
 #!/usr/bin/perl -wT
 # GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
 
-our $VERSION='1.12';
+our $VERSION='1.13';
 
 use strict;
 use Getopt::Long qw (:config auto_version);
@@ -10,12 +10,15 @@ use Getopt::Long qw (:config auto_version);
 # parse command line options 
 my $DEBUG = 0;
 my $opt_help = 0;
+my $opt_enable_replication = 0;
 my @ignore_tables_all = ();
 my @ignore_tables_data = ();
 
 my $result = GetOptions ( "help|h" => \$opt_help,
                           "--ignore-table=s"   => \@ignore_tables_all,
                           "--ignore-table-data=s"   => \@ignore_tables_data,
+                          "--master-data"   => \$opt_enable_replication,
+                          "--source-data"   => \$opt_enable_replication,
                           "debug=i"  => \$DEBUG,
                           );
 
@@ -177,7 +180,15 @@ sub match_table()
 # updates $do_db if database matches. returns 1 if current database should be extracted, or 0 if not.
 sub match_db()
 {
-  if (/^CHANGE MASTER/i) { return 0; }		# when extracting partial data, ignore replication commands
+  if (/^CHANGE MASTER/i) {
+    if ($opt_enable_replication) {
+      dbg(1, "replication requested, BEWARE, allowing pass-through of line=$_");
+      return 1;
+    } else {
+      dbg(1, "replication not explicitly requested, ignoring line=$_");
+      return 0;					# by default, when extracting partial data, ignore replication commands
+    }
+  }
   if (/^-- Current Database: `(.*?)`/) {	# only change $do_db state if new database is encountered
     if ("$1" eq "$mydb") {
       $do_db = 1; 
