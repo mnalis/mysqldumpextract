@@ -6,4 +6,5 @@ check:
 
 publish:  all check
 	reprepro includedeb wheezy `ls -1t *deb | head -n 1`
-	git commit -a
+	git commit -a || true
+	git push
