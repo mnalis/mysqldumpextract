@@ -7,10 +7,10 @@ Priority: optional
 Standards-Version: 4.5.1
 
 Package: mysqldumpextract
-Version: 1.01
+Version: 1.02
 Maintainer: Matija Nalis (Tomsoft Debian repo) <mnalis-debian@axe.tomsoft.hr>
 # Pre-Depends: <comma-separated list of packages>
-# Depends: <comma-separated list of packages>
+Depends: ${perl:Depends}
 # Recommends: <comma-separated list of packages>
 # Suggests: <comma-separated list of packages>
 # Provides: <comma-separated list of packages>
