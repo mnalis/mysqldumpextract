@@ -7,14 +7,15 @@ Priority: optional
 Standards-Version: 4.5.1
 
 Package: mysqldumpextract
-Version: 1.02
+Version: 1.03
 Maintainer: Matija Nalis (Tomsoft Debian repo) <mnalis-debian@axe.tomsoft.hr>
 # Pre-Depends: <comma-separated list of packages>
 Depends: ${perl:Depends}
 # Recommends: <comma-separated list of packages>
 # Suggests: <comma-separated list of packages>
 # Provides: <comma-separated list of packages>
-Replaces: tomsoft-mysql-backup (<= 1.96)
+Replaces: tomsoft-mysql-backup (<< 1.97)
+Breaks: tomsoft-mysql-backup (<< 1.97)
 # Architecture: all
 # Multi-Arch: <one of: foreign|same|allowed>
 # Copyright: <copyright file; defaults to GPL2>
