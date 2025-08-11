@@ -180,7 +180,7 @@ sub match_table()
 # updates $do_db if database matches. returns 1 if current database should be extracted, or 0 if not.
 sub match_db()
 {
-  if (/^CHANGE MASTER/i) {
+  if ((/^CHANGE MASTER/i) || (/^SET GLOBAL gtid_slave_pos=/i)) {
     if ($opt_enable_replication) {
       dbg(1, "replication requested, BEWARE, allowing pass-through of line=$_");
       return 1;
