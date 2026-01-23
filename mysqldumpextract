@@ -1,7 +1,7 @@
 #!/usr/bin/perl -wT
 # GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
 
-our $VERSION='1.14';
+our $VERSION='1.15';
 
 use strict;
 use Getopt::Long qw (:config auto_version);
@@ -179,6 +179,7 @@ sub match_wild
 
 my $do_db = 1;	# we start by including everything (even before first DB, there are SETtings that are needed)
 my $do_table = 1;
+my $in_insert = 0;	# track if we're inside a multi-line INSERT statement
 
 # updates $do_table if table matches. returns 1 if current table should be extracted, or 0 if not.
 sub match_table()
@@ -189,6 +190,7 @@ sub match_table()
   if (/^-- (Table structure for table|Temporary table structure for view|Final view structure for view) `(.*?)`/) {		# only change $do_table state if new table is encountered
     my $cur_table = $2;
     $do_table = 0;
+    $in_insert = 0;	# reset INSERT tracking when entering new table
     if (match_wild($cur_table, \$do_tables_regex)) {			# if matched DO_TABLES...
         dbg(6, "\`$cur_table\` matches DO TABLES");
         $do_table = 1;							# ... then by default include it...
@@ -221,9 +223,11 @@ sub match_db()
     if ("$1" eq "$mydb") {
       $do_db = 1; 
       $do_table = 1;
+      $in_insert = 0;	# reset INSERT tracking when entering new database
       dbg(1, "matched DB=\`$mydb\`");
     } else {
       $do_db = 0;
+      $in_insert = 0;	# reset INSERT tracking when leaving database
       dbg(1, "DB \`$1\` is no longer \`$mydb\`");
     };
   }
@@ -246,7 +250,25 @@ while (<STDIN>) {
       $_ = process_sql_mode($_);
       print;
   } elsif ($should_print_table == 2) {		# print ALL except INSERTs (that is, CREATE TABLEs)
-      unless (/^\s*INSERT /i) {
+      # Handle multi-line INSERT statements (MariaDB 10.11+)
+      if (/^\s*INSERT /i) {
+        # Start of INSERT statement
+        $in_insert = 1;
+        dbg(7, "Skipping INSERT start: $_");
+        # Check if this is a single-line INSERT (ends with semicolon)
+        if (/;\s*$/) {
+          $in_insert = 0;
+          dbg(7, "Single-line INSERT detected and skipped");
+        }
+      } elsif ($in_insert) {
+        # We're inside a multi-line INSERT, skip until we find the semicolon
+        dbg(7, "Skipping INSERT continuation: $_");
+        if (/;/) {
+          $in_insert = 0;
+          dbg(7, "End of multi-line INSERT detected");
+        }
+      } else {
+        # Not an INSERT line, print it
         $_ = process_sql_mode($_);
         print;
       }
