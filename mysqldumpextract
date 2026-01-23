@@ -1,7 +1,7 @@
 #!/usr/bin/perl -wT
 # GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
 
-our $VERSION='1.13';
+our $VERSION='1.14';
 
 use strict;
 use Getopt::Long qw (:config auto_version);
@@ -11,6 +11,7 @@ use Getopt::Long qw (:config auto_version);
 my $DEBUG = 0;
 my $opt_help = 0;
 my $opt_enable_replication = 0;
+my $opt_remove_no_auto_create_user = 0;
 my @ignore_tables_all = ();
 my @ignore_tables_data = ();
 
@@ -19,6 +20,7 @@ my $result = GetOptions ( "help|h" => \$opt_help,
                           "--ignore-table-data=s"   => \@ignore_tables_data,
                           "--master-data"   => \$opt_enable_replication,
                           "--source-data"   => \$opt_enable_replication,
+                          "--remove-no-auto-create-user"   => \$opt_remove_no_auto_create_user,
                           "debug=i"  => \$DEBUG,
                           );
 
@@ -98,7 +100,7 @@ This script parses mysqldump backup file (usually created with "mysqldump --all-
 It can also extract only some tables from that database, or extract all tables except some of them.
 
 Usage:
-mysqldumpextract [--ignore-table=table]... [--ignore-table-data=table]... database [table]...
+mysqldumpextract [--ignore-table=table]... [--ignore-table-data=table]... [--remove-no-auto-create-user] database [table]...
 Options:
 \t-h, --help
 \t\tPrint this help screen
@@ -106,6 +108,8 @@ Options:
 \t\tignores specified table. May be repeated for multiple ignores.
 \t--ignore-table-data=table
 \t\tignores only INSERTS for specified table (eg. create structure only). May be repeated for multiple ignores.
+\t--remove-no-auto-create-user
+\t\tremoves NO_AUTO_CREATE_USER from sql_mode settings (for MySQL 8.0 compatibility)
 \t--debug
 \t\tset debug level
 
@@ -118,6 +122,9 @@ Example usage:
 
 \t# extract all tables from mydb2 with names starting with "tt", but only extract structure for "tt_log"
 \txzcat mysqldump.sql.xz | mysqldumpextract --ignore-table-data=tt_log mydb2 tt% 
+
+\t# remove NO_AUTO_CREATE_USER for MySQL 8.0 compatibility
+\tcat mysqldump.sql | mysqldumpextract --remove-no-auto-create-user database
 
 \t# table names may include "%" as SQL wildcard.
 \tcat mysqldump.sql | mysqldumpextract mysql help_%
@@ -134,12 +141,33 @@ sub dbg ($$) {
   }
 }
 
+# removes NO_AUTO_CREATE_USER from sql_mode if requested
+sub process_sql_mode($)
+{
+  my ($line) = @_;
+  if ($opt_remove_no_auto_create_user) {
+    if ($line =~ /SET\s+sql_mode\s*=/i) {
+      # Remove NO_AUTO_CREATE_USER and clean up any resulting issues with commas
+      $line =~ s/,?\s*NO_AUTO_CREATE_USER\s*,?/,/gi;
+      # Clean up double commas or leading/trailing commas within the string
+      $line =~ s/,\s*,/,/g;
+      $line =~ s/=\s*',/= '/g;
+      $line =~ s/,'/'/g;
+      dbg(3, "Removed NO_AUTO_CREATE_USER from sql_mode");
+    }
+  }
+  return $line;
+}
+
 # print headers
 print "-- mysqldumpextract v$VERSION started at " . localtime() . "\n";
 print "--   Extracting DB: $mydb\n";
 print "--   Extract tables regex: $do_tables_regex\n";
 print "--   Ignore  tables regex: $ignore_tables_all_regex\n";
 print "--   Ignore    data regex: $ignore_tables_data_regex\n";
+if ($opt_remove_no_auto_create_user) {
+  print "--   Remove NO_AUTO_CREATE_USER: yes\n";
+}
 print "--\n\n";
 
 # does current table matches entry specified list?
@@ -215,9 +243,13 @@ while (<STDIN>) {
   next if !match_db();				# skip uninteresting databases alltogether
   my $should_print_table = match_table();
   if ($should_print_table == 1) {		# print ALL
+      $_ = process_sql_mode($_);
       print;
   } elsif ($should_print_table == 2) {		# print ALL except INSERTs (that is, CREATE TABLEs)
-      print unless /^\s*INSERT /i;
+      unless (/^\s*INSERT /i) {
+        $_ = process_sql_mode($_);
+        print;
+      }
   }
 }
 
