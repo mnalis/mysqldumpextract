@@ -1,7 +1,7 @@
 #!/usr/bin/perl -wT
 # GPLv3+ Matija Nalis <mnalis-perl@axe.tomsoft.hr> started 20161124
 
-our $VERSION='1.15';
+our $VERSION='1.16';
 
 use strict;
 use Getopt::Long qw (:config auto_version);
@@ -255,15 +255,15 @@ while (<STDIN>) {
         # Start of INSERT statement
         $in_insert = 1;
         dbg(7, "Skipping INSERT start: $_");
-        # Check if this is a single-line INSERT (ends with semicolon)
-        if (/;\s*$/) {
+        # Check if this is a single-line INSERT (ends with semicolon at end of line, not inside data)
+        if (/\);\s*$/) {
           $in_insert = 0;
           dbg(7, "Single-line INSERT detected and skipped");
         }
       } elsif ($in_insert) {
-        # We're inside a multi-line INSERT, skip until we find the semicolon
+        # We're inside a multi-line INSERT, skip until we find the closing parenthesis and semicolon
         dbg(7, "Skipping INSERT continuation: $_");
-        if (/;/) {
+        if (/\);\s*$/) {
           $in_insert = 0;
           dbg(7, "End of multi-line INSERT detected");
         }
